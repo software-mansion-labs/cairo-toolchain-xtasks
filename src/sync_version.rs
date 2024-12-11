@@ -27,11 +27,12 @@ pub fn main(args: Args) -> Result<()> {
 
     let mut cargo_toml = sh.read_file("Cargo.toml")?.parse::<DocumentMut>()?;
 
-    let (package, table_path) = if let Some(item) = cargo_toml
+    let (package, table_path) = if let Some(workspace_package) = cargo_toml
         .get_mut("workspace")
         .and_then(|t| t.get_mut("package"))
+        .and_then(|t| t.as_table_mut())
     {
-        (item.as_table_mut().unwrap(), "workspace.package")
+        (workspace_package, "workspace.package")
     } else {
         (cargo_toml["package"].as_table_mut().unwrap(), "package")
     };
