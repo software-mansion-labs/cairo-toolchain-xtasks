@@ -75,11 +75,13 @@ pub fn main(args: Args) -> Result<()> {
 }
 
 fn edit_dependencies(cargo_toml: &mut DocumentMut, table_path: &str, args: &Args) {
-    let deps = table_path
+    let Some(deps) = table_path
         .split('.')
-        .fold(cargo_toml.as_item_mut(), |doc, key| &mut doc[key])
-        .as_table_mut()
-        .unwrap();
+        .try_fold(cargo_toml.as_item_mut(), |doc, key| doc.get_mut(key))
+    else {
+        return;
+    };
+    let deps = deps.as_table_mut().unwrap();
 
     for (_, dep) in deps.iter_mut().filter(|(key, _)| args.dep.owns(key)) {
         let dep = dep.as_value_mut().unwrap();
