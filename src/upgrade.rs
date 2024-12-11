@@ -5,6 +5,7 @@ use clap::{Parser, ValueEnum};
 use semver::Version;
 use std::mem;
 use std::path::PathBuf;
+use std::sync::OnceLock;
 use toml_edit::{DocumentMut, InlineTable, Value};
 use xshell::{cmd, Shell};
 
@@ -83,7 +84,7 @@ fn edit_dependencies(cargo_toml: &mut DocumentMut, table_path: &str, args: &Args
     };
     let deps = deps.as_table_mut().unwrap();
 
-    for (_, dep) in deps.iter_mut().filter(|(key, _)| args.dep.owns(key)) {
+    for (_, dep) in deps.iter_mut().filter(|(key, _)| args.tool_owns_crate(key)) {
         let dep = dep.as_value_mut().unwrap();
 
         // Always use crates.io requirements so that we can reliably patch them with the
@@ -106,7 +107,7 @@ fn edit_dependencies(cargo_toml: &mut DocumentMut, table_path: &str, args: &Args
     deps.sort_values();
 
     eprintln!("[{table_path}]");
-    for (key, dep) in deps.iter().filter(|(key, _)| args.dep.owns(key)) {
+    for (key, dep) in deps.iter().filter(|(key, _)| args.tool_owns_crate(key)) {
         eprintln!("{key} = {dep}");
     }
 }
@@ -117,7 +118,7 @@ fn edit_patch(cargo_toml: &mut DocumentMut, args: &Args) {
         .unwrap();
 
     // Clear any existing entries for this dependency.
-    for crate_name in args.dep.crates() {
+    for crate_name in args.tool_crates() {
         patch.remove(crate_name);
     }
 
@@ -125,12 +126,12 @@ fn edit_patch(cargo_toml: &mut DocumentMut, args: &Args) {
     if args.spec.rev.is_some() || args.spec.branch.is_some() || args.spec.path.is_some() {
         // Patch all Cairo crates that exist, even if this project does not directly depend on them,
         // to avoid any duplicates in transient dependencies.
-        for &dep_name in args.dep.crates() {
+        for &dep_name in args.tool_crates() {
             let mut dep = InlineTable::new();
 
             // Add a Git branch or revision reference if requested.
             if args.spec.rev.is_some() || args.spec.branch.is_some() {
-                dep.insert("git", args.dep.repo().into());
+                dep.insert("git", args.tool_repo().into());
             }
 
             if let Some(branch) = &args.spec.branch {
@@ -168,58 +169,27 @@ fn edit_patch(cargo_toml: &mut DocumentMut, args: &Args) {
     }
 }
 
-impl DepName {
-    fn crates(&self) -> &'static [&'static str] {
-        match self {
-            DepName::Cairo => {
-                // List of library crates published from the starkware-libs/cairo repository.
-                // One can get this list from the `scripts/release_crates.sh` script in that repo.
-                // Keep this list sorted for better commit diffs.
-                &[
-                    "cairo-lang-casm",
-                    "cairo-lang-compiler",
-                    "cairo-lang-debug",
-                    "cairo-lang-defs",
-                    "cairo-lang-diagnostics",
-                    "cairo-lang-doc",
-                    "cairo-lang-eq-solver",
-                    "cairo-lang-executable",
-                    "cairo-lang-filesystem",
-                    "cairo-lang-formatter",
-                    "cairo-lang-lowering",
-                    "cairo-lang-parser",
-                    "cairo-lang-plugins",
-                    "cairo-lang-proc-macros",
-                    "cairo-lang-project",
-                    "cairo-lang-runnable-utils",
-                    "cairo-lang-runner",
-                    "cairo-lang-semantic",
-                    "cairo-lang-sierra",
-                    "cairo-lang-sierra-ap-change",
-                    "cairo-lang-sierra-gas",
-                    "cairo-lang-sierra-generator",
-                    "cairo-lang-sierra-to-casm",
-                    "cairo-lang-sierra-type-size",
-                    "cairo-lang-starknet",
-                    "cairo-lang-starknet-classes",
-                    "cairo-lang-syntax",
-                    "cairo-lang-syntax-codegen",
-                    "cairo-lang-test-plugin",
-                    "cairo-lang-test-runner",
-                    "cairo-lang-test-utils",
-                    "cairo-lang-utils",
-                ]
-            }
+impl Args {
+    fn tool_crates(&self) -> &'static [&'static str] {
+        static CAIRO_CACHE: OnceLock<Vec<&str>> = OnceLock::new();
+        match self.dep {
+            DepName::Cairo => CAIRO_CACHE.get_or_init(|| {
+                pull_cairo_packages_from_cairo_repository(&self.spec)
+                    .unwrap()
+                    .into_iter()
+                    .map(|s| s.leak() as &str)
+                    .collect()
+            }),
             DepName::CairoLS => &["cairo-language-server"],
         }
     }
 
-    fn owns(&self, crate_name: &str) -> bool {
-        self.crates().contains(&crate_name)
+    fn tool_owns_crate(&self, crate_name: &str) -> bool {
+        self.tool_crates().contains(&crate_name)
     }
 
-    fn repo(&self) -> &'static str {
-        match self {
+    fn tool_repo(&self) -> &'static str {
+        match self.dep {
             DepName::Cairo => "https://github.com/starkware-libs/cairo",
             DepName::CairoLS => "https://github.com/software-mansion/cairols",
         }
@@ -333,5 +303,6 @@ mod tests {
         assert!(!list.is_empty());
         assert!(list.contains(&"cairo-lang-compiler".to_owned()));
         assert!(!list.contains(&"cairo-test".to_owned()));
+        assert!(list.is_sorted());
     }
 }
