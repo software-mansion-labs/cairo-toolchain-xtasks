@@ -13,13 +13,6 @@ updates:
       non critical:
         patterns:
           - "*"
-        exclude-patterns:
-          - "cairo-lang-*"
-          - "lsp-types"
-          - "salsa"
-          - "scarb-*"
-    ignore:
-      - dependency-name: "cairo-lang-*"
 
   - package-ecosystem: github-actions
     directory: "/"
