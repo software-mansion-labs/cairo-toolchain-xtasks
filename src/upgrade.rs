@@ -1,6 +1,6 @@
 //! Update toolchain crates properly.
 
-use anyhow::Result;
+use anyhow::{bail, Result};
 use clap::{Parser, ValueEnum};
 use semver::Version;
 use std::mem;
@@ -29,7 +29,7 @@ enum DepName {
     CairoLS,
 }
 
-#[derive(clap::Args, Clone)]
+#[derive(clap::Args, Clone, Default)]
 #[group(required = true, multiple = true)]
 struct Spec {
     /// Source the dependency from crates.io and use a specific version.
@@ -282,4 +282,56 @@ fn find_unused_patches(cargo_lock: &DocumentMut) -> Option<Vec<String>> {
             .flat_map(|table| Some(table.get("name")?.as_str()?.to_owned()))
             .collect(),
     )
+}
+
+/// Pulls names of crates published from the `starkware-libs/cairo` repository.
+///
+/// The list is obtained by parsing the `scripts/release_crates.sh` script in that repo.
+/// The resulting vector is sorted alphabetically.
+fn pull_cairo_packages_from_cairo_repository(spec: &Spec) -> Result<Vec<String>> {
+    let sh = Shell::new()?;
+
+    let release_crates_sh = if let Some(path) = &spec.path {
+        sh.read_file(path.join("scripts").join("release_crates.sh"))?
+    } else {
+        let rev = if let Some(version) = &spec.version {
+            format!("refs/tags/v{version}")
+        } else if let Some(rev) = &spec.rev {
+            rev.to_string()
+        } else if let Some(branch) = &spec.branch {
+            format!("refs/heads/{branch}")
+        } else {
+            "refs/heads/main".to_string()
+        };
+        let url = format!("https://raw.githubusercontent.com/starkware-libs/cairo/{rev}/scripts/release_crates.sh");
+        cmd!(sh, "curl -sSfL {url}").read()?
+    };
+
+    let Some((_, source_list)) = release_crates_sh.split_once("CRATES_TO_PUBLISH=(") else {
+        bail!("failed to extract start of `CRATES_TO_PUBLISH` from `scripts/release_crates.sh`");
+    };
+    let Some((source_list, _)) = source_list.split_once(")") else {
+        bail!("failed to extract end of `CRATES_TO_PUBLISH` from `scripts/release_crates.sh`");
+    };
+
+    let mut crates: Vec<String> = source_list
+        .split_whitespace()
+        .filter(|s| s.starts_with("cairo-lang-"))
+        .map(|s| s.into())
+        .collect();
+    crates.sort();
+    Ok(crates)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_pull_cairo_packages_from_cairo_repository() {
+        let list = pull_cairo_packages_from_cairo_repository(&Spec::default()).unwrap();
+        assert!(!list.is_empty());
+        assert!(list.contains(&"cairo-lang-compiler".to_owned()));
+        assert!(!list.contains(&"cairo-test".to_owned()));
+    }
 }
