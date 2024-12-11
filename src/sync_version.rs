@@ -27,13 +27,13 @@ pub fn main(args: Args) -> Result<()> {
 
     let mut cargo_toml = sh.read_file("Cargo.toml")?.parse::<DocumentMut>()?;
 
-    let (package, is_workspace) = if cargo_toml.contains_key("workspace") {
-        (
-            cargo_toml["workspace"]["package"].as_table_mut().unwrap(),
-            true,
-        )
+    let (package, table_path) = if let Some(item) = cargo_toml
+        .get_mut("workspace")
+        .and_then(|t| t.get_mut("package"))
+    {
+        (item.as_table_mut().unwrap(), "workspace.package")
     } else {
-        (cargo_toml["package"].as_table_mut().unwrap(), false)
+        (cargo_toml["package"].as_table_mut().unwrap(), "package")
     };
 
     let mut version = expected_version()?;
@@ -47,14 +47,7 @@ pub fn main(args: Args) -> Result<()> {
 
     package["version"] = value(version.to_string());
 
-    eprintln!(
-        "[{table}]\n{package}",
-        table = if is_workspace {
-            "workspace.package"
-        } else {
-            "package"
-        }
-    );
+    eprintln!("[{table_path}]\n{package}");
 
     if !args.dry_run {
         sh.write_file("Cargo.toml", cargo_toml.to_string())?;
