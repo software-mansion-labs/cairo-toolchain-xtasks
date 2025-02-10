@@ -30,6 +30,8 @@ enum DepName {
     CairoLS,
     #[value(name = "cairolint")]
     CairoLint,
+    #[value(name = "stwo-cairo")]
+    StwoCairo,
 }
 
 #[derive(clap::Args, Clone, Default)]
@@ -187,6 +189,7 @@ impl Args {
             }),
             DepName::CairoLS => &["cairo-language-server"],
             DepName::CairoLint => &["cairo-lint-core"],
+            DepName::StwoCairo => &["stwo_cairo_prover"],
         }
     }
 
@@ -199,6 +202,7 @@ impl Args {
             DepName::Cairo => "https://github.com/starkware-libs/cairo",
             DepName::CairoLS => "https://github.com/software-mansion/cairols",
             DepName::CairoLint => "https://github.com/software-mansion/cairo-lint",
+            DepName::StwoCairo => "https://github.com/starkware-libs/stwo-cairo",
         }
     }
 }
