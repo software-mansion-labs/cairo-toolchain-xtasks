@@ -189,7 +189,7 @@ impl Args {
             }),
             DepName::CairoLS => &["cairo-language-server"],
             DepName::CairoLint => &["cairo-lint-core"],
-            DepName::StwoCairo => &["stwo_cairo_prover"],
+            DepName::StwoCairo => &["stwo_cairo_prover", "stwo-cairo-adapter"],
         }
     }
 
