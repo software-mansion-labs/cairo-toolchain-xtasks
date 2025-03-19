@@ -188,7 +188,7 @@ impl Args {
                     .collect()
             }),
             DepName::CairoLS => &["cairo-language-server"],
-            DepName::CairoLint => &["cairo-lint-core"],
+            DepName::CairoLint => &["cairo-lint"],
             DepName::StwoCairo => &["stwo_cairo_prover", "stwo-cairo-adapter"],
         }
     }
