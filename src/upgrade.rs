@@ -1,13 +1,13 @@
 //! Update toolchain crates properly.
 
-use anyhow::{bail, Result};
+use anyhow::{Result, bail};
 use clap::{Parser, ValueEnum};
 use semver::Version;
 use std::mem;
 use std::path::PathBuf;
 use std::sync::OnceLock;
 use toml_edit::{DocumentMut, InlineTable, Value};
-use xshell::{cmd, Shell};
+use xshell::{Shell, cmd};
 
 /// Update toolchain crates properly.
 #[derive(Parser)]
@@ -50,7 +50,7 @@ struct Spec {
 
     /// Source the dependency from a local filesystem.
     ///
-    /// This is useful for local development, but avoid commiting this to the repository.
+    /// This is useful for local development but avoids commiting this to the repository.
     #[arg(short, long, conflicts_with_all = ["rev", "branch"])]
     path: Option<PathBuf>,
 }
@@ -120,9 +120,7 @@ fn edit_dependencies(cargo_toml: &mut DocumentMut, table_path: &str, args: &Args
 }
 
 fn edit_patch(cargo_toml: &mut DocumentMut, args: &Args) {
-    let patch = cargo_toml["patch"].as_table_mut().unwrap()["crates-io"]
-        .as_table_mut()
-        .unwrap();
+    let patch = cargo_toml["patch"].ensure_table()["crates-io"].ensure_table();
 
     // Clear any existing entries for this dependency.
     for crate_name in args.tool_crates() {
@@ -240,11 +238,10 @@ fn purge_unused_patches(cargo_toml: &mut DocumentMut) -> Result<()> {
     let sh = Shell::new()?;
     let cargo_lock = sh.read_file("Cargo.lock")?.parse::<DocumentMut>()?;
 
-    if let Some(unused_patches) = find_unused_patches(&cargo_lock) {
-        let patch = cargo_toml["patch"].as_table_mut().unwrap()["crates-io"]
-            .as_table_mut()
-            .unwrap();
-
+    if let Some(unused_patches) = find_unused_patches(&cargo_lock)
+        && let Some(patch) = cargo_toml["patch"].as_table_mut()
+        && let Some(patch) = patch["crates-io"].as_table_mut()
+    {
         // Remove any patches that are not for Cairo crates.
         patch.retain(|key, _| !unused_patches.contains(&key.to_owned()));
     }
@@ -284,7 +281,9 @@ fn pull_cairo_packages_from_cairo_repository(spec: &Spec) -> Result<Vec<String>>
         } else {
             "refs/heads/main".to_string()
         };
-        let url = format!("https://raw.githubusercontent.com/starkware-libs/cairo/{rev}/scripts/release_crates.sh");
+        let url = format!(
+            "https://raw.githubusercontent.com/starkware-libs/cairo/{rev}/scripts/release_crates.sh"
+        );
         cmd!(sh, "curl -sSfL {url}").read()?
     };
 
@@ -302,6 +301,21 @@ fn pull_cairo_packages_from_cairo_repository(spec: &Spec) -> Result<Vec<String>>
         .collect();
     crates.sort();
     Ok(crates)
+}
+
+trait ItemEx {
+    fn ensure_table(&mut self) -> &mut toml_edit::Table;
+}
+
+impl ItemEx for toml_edit::Item {
+    fn ensure_table(&mut self) -> &mut toml_edit::Table {
+        if !self.is_table() {
+            let mut table = toml_edit::Table::new();
+            table.set_implicit(true);
+            *self = table.into();
+        }
+        self.as_table_mut().unwrap()
+    }
 }
 
 #[cfg(test)]

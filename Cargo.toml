@@ -1,8 +1,8 @@
 [package]
 name = "cairo-toolchain-xtasks"
 version = "1.2.2"
-edition = "2021"
-rust-version = "1.83.0"
+edition = "2024"
+rust-version = "1.88.0"
 
 authors = ["Software Mansion <contact@swmansion.com>"]
 description = "Build scripts shared between all Cairo Toolchain projects maintained by Software Mansion."
