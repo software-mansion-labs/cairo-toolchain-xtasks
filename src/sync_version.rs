@@ -1,10 +1,10 @@
 //! Synchronise this crate's version with the `cairo-lang-*` crates.
 
-use anyhow::{ensure, Result};
+use anyhow::{Result, ensure};
 use clap::Parser;
 use semver::{Prerelease, Version};
-use toml_edit::{value, DocumentMut};
-use xshell::{cmd, Shell};
+use toml_edit::{DocumentMut, value};
+use xshell::{Shell, cmd};
 
 /// Synchronise this crate's version with the `cairo-lang-*` crates.
 #[derive(Default, Parser)]
