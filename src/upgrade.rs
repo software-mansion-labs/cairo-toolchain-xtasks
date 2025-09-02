@@ -207,10 +207,10 @@ impl Args {
 
 /// Copies features from source dependency spec to new dependency table, if exists.
 fn copy_dependency_features(dest: &mut InlineTable, src: &Value) {
-    if let Some(dep) = src.as_inline_table() {
-        if let Some(features) = dep.get("features") {
-            dest.insert("features", features.clone());
-        }
+    if let Some(dep) = src.as_inline_table()
+        && let Some(features) = dep.get("features")
+    {
+        dest.insert("features", features.clone());
     }
 }
 
