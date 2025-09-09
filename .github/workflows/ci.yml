@@ -24,7 +24,20 @@ jobs:
           # Make sure CI fails on all warnings, including Clippy lints.
           RUSTDOCFLAGS: "-Dwarnings"
       - run: cargo test
-
+  check-nightly:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: "nightly-2025-02-13"
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+      - name: Clippy on Scarb nightly version
+        run: cargo clippy --all-targets --all-features -- --no-deps
+        env:
+          # Make sure CI fails on all warnings, including Clippy lints.
+          RUSTFLAGS: "-Dwarnings"      
   udeps:
     runs-on: ubuntu-latest
     steps:
