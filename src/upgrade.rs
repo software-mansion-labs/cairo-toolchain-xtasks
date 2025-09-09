@@ -207,10 +207,10 @@ impl Args {
 
 /// Copies features from source dependency spec to new dependency table, if exists.
 fn copy_dependency_features(dest: &mut InlineTable, src: &Value) {
-    if let Some(dep) = src.as_inline_table()
-        && let Some(features) = dep.get("features")
-    {
-        dest.insert("features", features.clone());
+    if let Some(dep) = src.as_inline_table() {
+        if let Some(features) = dep.get("features") {
+            dest.insert("features", features.clone());
+        }
     }
 }
 
@@ -238,12 +238,13 @@ fn purge_unused_patches(cargo_toml: &mut DocumentMut) -> Result<()> {
     let sh = Shell::new()?;
     let cargo_lock = sh.read_file("Cargo.lock")?.parse::<DocumentMut>()?;
 
-    if let Some(unused_patches) = find_unused_patches(&cargo_lock)
-        && let Some(patch) = cargo_toml["patch"].as_table_mut()
-        && let Some(patch) = patch["crates-io"].as_table_mut()
-    {
-        // Remove any patches that are not for Cairo crates.
-        patch.retain(|key, _| !unused_patches.contains(&key.to_owned()));
+    if let Some(unused_patches) = find_unused_patches(&cargo_lock) {
+        if let Some(patch) = cargo_toml["patch"].as_table_mut() {
+            if let Some(patch) = patch["crates-io"].as_table_mut() {
+                // Remove any patches that are not for Cairo crates.
+                patch.retain(|key, _| !unused_patches.contains(&key.to_owned()));
+            }
+        }
     }
 
     Ok(())
