@@ -264,13 +264,13 @@ fn find_unused_patches(cargo_lock: &DocumentMut) -> Option<Vec<String>> {
 
 /// Pulls names of crates published from the `starkware-libs/cairo` repository.
 ///
-/// The list is obtained by parsing the `scripts/release_crates.sh` script in that repo.
+/// The list is obtained by parsing the `scripts/crates_list.sh` script in that repo.
 /// The resulting vector is sorted alphabetically.
 fn pull_cairo_packages_from_cairo_repository(spec: &Spec) -> Result<Vec<String>> {
     let sh = Shell::new()?;
 
-    let release_crates_sh = if let Some(path) = &spec.path {
-        sh.read_file(path.join("scripts").join("release_crates.sh"))?
+    let crates_list_sh = if let Some(path) = &spec.path {
+        sh.read_file(path.join("scripts").join("crates_list.sh"))?
     } else {
         let rev = if let Some(version) = &spec.version {
             format!("refs/tags/v{version}")
@@ -282,16 +282,16 @@ fn pull_cairo_packages_from_cairo_repository(spec: &Spec) -> Result<Vec<String>>
             "refs/heads/main".to_string()
         };
         let url = format!(
-            "https://raw.githubusercontent.com/starkware-libs/cairo/{rev}/scripts/release_crates.sh"
+            "https://raw.githubusercontent.com/starkware-libs/cairo/{rev}/scripts/crates_list.sh"
         );
         cmd!(sh, "curl -sSfL {url}").read()?
     };
 
-    let Some((_, source_list)) = release_crates_sh.split_once("CRATES_TO_PUBLISH=(") else {
-        bail!("failed to extract start of `CRATES_TO_PUBLISH` from `scripts/release_crates.sh`");
+    let Some((_, source_list)) = crates_list_sh.split_once("CRATES=(") else {
+        bail!("failed to extract start of `CRATES` from `scripts/crates_list.sh`");
     };
     let Some((source_list, _)) = source_list.split_once(")") else {
-        bail!("failed to extract end of `CRATES_TO_PUBLISH` from `scripts/release_crates.sh`");
+        bail!("failed to extract end of `CRATES` from `scripts/crates_list.sh`");
     };
 
     let mut crates: Vec<String> = source_list
