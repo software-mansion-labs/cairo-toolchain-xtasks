@@ -282,16 +282,15 @@ fn find_unused_patches(cargo_lock: &DocumentMut) -> Option<Vec<String>> {
 /// project build against crates.io releases.
 fn ensure_patches_applied(sh: &Shell, args: &Args) -> Result<()> {
     let read_lock = || -> Result<DocumentMut> { Ok(sh.read_file("Cargo.lock")?.parse()?) };
-    let owns = |name: &str| args.tool_owns_crate(name);
 
-    let stale = find_registry_crates(&read_lock()?, owns);
+    let stale = find_registry_crates(&read_lock()?, args.tool_crates());
     if stale.is_empty() {
         return Ok(());
     }
     let package_args = stale.iter().flat_map(|pkg| ["-p", pkg.as_str()]);
     cmd!(sh, "cargo update {package_args...}").run()?;
 
-    let unpatched = find_registry_crates(&read_lock()?, owns);
+    let unpatched = find_registry_crates(&read_lock()?, args.tool_crates());
     if !unpatched.is_empty() {
         bail!(
             "patches were not applied, these crates still resolve from crates.io: {}\n\
@@ -305,9 +304,9 @@ fn ensure_patches_applied(sh: &Shell, args: &Args) -> Result<()> {
     Ok(())
 }
 
-/// Returns `name@version` of every package in `Cargo.lock` that is owned by the tool and still
+/// Returns `name@version` of every package in `Cargo.lock` that is one of `tool_crates` and still
 /// comes from a registry, i.e. the `[patch.crates-io]` entry for it was not applied.
-fn find_registry_crates(cargo_lock: &DocumentMut, owns: impl Fn(&str) -> bool) -> Vec<String> {
+fn find_registry_crates(cargo_lock: &DocumentMut, tool_crates: &[&str]) -> Vec<String> {
     let Some(packages) = cargo_lock
         .get("package")
         .and_then(|p| p.as_array_of_tables())
@@ -319,8 +318,8 @@ fn find_registry_crates(cargo_lock: &DocumentMut, owns: impl Fn(&str) -> bool) -
         .filter_map(|pkg| {
             let name = pkg.get("name")?.as_str()?;
             let source = pkg.get("source")?.as_str()?;
-            (owns(name) && source.starts_with("registry+")).then(|| {
-                let version = pkg.get("version").and_then(|v| v.as_str()).unwrap_or("?");
+            (tool_crates.contains(&name) && source.starts_with("registry+")).then(|| {
+                let version = pkg.get("version").and_then(|v| v.as_str()).unwrap();
                 format!("{name}@{version}")
             })
         })
@@ -411,12 +410,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 "#
         .parse::<DocumentMut>()
         .unwrap();
-        let owned = ["cairo-lang-utils", "cairo-lang-defs", "cairo-lang-parser"];
+        let tool_crates = ["cairo-lang-utils", "cairo-lang-defs", "cairo-lang-parser"];
         assert_eq!(
-            find_registry_crates(&lock, |name| owned.contains(&name)),
+            find_registry_crates(&lock, &tool_crates),
             vec!["cairo-lang-utils@2.21.0".to_owned()]
         );
-        assert!(find_registry_crates(&"".parse().unwrap(), |_| true).is_empty());
+        assert!(find_registry_crates(&"".parse().unwrap(), &tool_crates).is_empty());
     }
 
     #[test]
