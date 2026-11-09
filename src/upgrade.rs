@@ -70,6 +70,10 @@ pub fn main(args: Args) -> Result<()> {
 
         cmd!(sh, "cargo fetch").run()?;
 
+        if args.spec.is_patching() {
+            ensure_patches_applied(&sh, &args)?;
+        }
+
         purge_unused_patches(&mut cargo_toml)?;
         sh.write_file("Cargo.toml", cargo_toml.to_string())?;
 
@@ -128,7 +132,7 @@ fn edit_patch(cargo_toml: &mut DocumentMut, args: &Args) {
     }
 
     // Leave this section as-if if we are requested to just use a specific version.
-    if args.spec.rev.is_some() || args.spec.branch.is_some() || args.spec.path.is_some() {
+    if args.spec.is_patching() {
         // Patch all Cairo crates that exist, even if this project does not directly depend on them,
         // to avoid any duplicates in transient dependencies.
         for &dep_name in args.tool_crates() {
@@ -171,6 +175,13 @@ fn edit_patch(cargo_toml: &mut DocumentMut, args: &Args) {
     eprintln!("[patch.crates-io]");
     for (key, dep) in patch.iter() {
         eprintln!("{key} = {dep}");
+    }
+}
+
+impl Spec {
+    /// Whether this spec sources the dependency via `[patch.crates-io]` rather than crates.io.
+    fn is_patching(&self) -> bool {
+        self.rev.is_some() || self.branch.is_some() || self.path.is_some()
     }
 }
 
@@ -262,6 +273,59 @@ fn find_unused_patches(cargo_lock: &DocumentMut) -> Option<Vec<String>> {
     )
 }
 
+/// Makes sure the tool's crates are actually sourced from the `[patch.crates-io]` entries.
+///
+/// `cargo fetch` keeps packages already locked in `Cargo.lock`, so crates.io versions locked
+/// before the upgrade are re-resolved with a targeted `cargo update`. If any of them still come
+/// from crates.io afterwards, Cargo ignored the patch (it does so silently when the patched
+/// version does not satisfy some requirement in the graph), and we fail instead of letting the
+/// project build against crates.io releases.
+fn ensure_patches_applied(sh: &Shell, args: &Args) -> Result<()> {
+    let read_lock = || -> Result<DocumentMut> { Ok(sh.read_file("Cargo.lock")?.parse()?) };
+
+    let stale = find_registry_crates(&read_lock()?, args.tool_crates());
+    if stale.is_empty() {
+        return Ok(());
+    }
+    let package_args = stale.iter().flat_map(|pkg| ["-p", pkg.as_str()]);
+    cmd!(sh, "cargo update {package_args...}").run()?;
+
+    let unpatched = find_registry_crates(&read_lock()?, args.tool_crates());
+    if !unpatched.is_empty() {
+        bail!(
+            "patches were not applied, these crates still resolve from crates.io: {}\n\
+             Cargo ignores a `[patch]` entry when the patched crate's version does not satisfy \
+             the requirements in the dependency graph, e.g. when a dependency requires a newer \
+             version than the patched source declares. Run `cargo tree -i <crate>@<version>` \
+             to find which dependency requires it.",
+            unpatched.join(", ")
+        );
+    }
+    Ok(())
+}
+
+/// Returns `name@version` of every package in `Cargo.lock` that is one of `tool_crates` and still
+/// comes from a registry, i.e. the `[patch.crates-io]` entry for it was not applied.
+fn find_registry_crates(cargo_lock: &DocumentMut, tool_crates: &[&str]) -> Vec<String> {
+    let Some(packages) = cargo_lock
+        .get("package")
+        .and_then(|p| p.as_array_of_tables())
+    else {
+        return Vec::new();
+    };
+    packages
+        .iter()
+        .filter_map(|pkg| {
+            let name = pkg.get("name")?.as_str()?;
+            let source = pkg.get("source")?.as_str()?;
+            (tool_crates.contains(&name) && source.starts_with("registry+")).then(|| {
+                let version = pkg.get("version").and_then(|v| v.as_str()).unwrap();
+                format!("{name}@{version}")
+            })
+        })
+        .collect()
+}
+
 /// Pulls names of crates published from the `starkware-libs/cairo` repository.
 ///
 /// The list is obtained by parsing the `scripts/crates_list.sh` script in that repo.
@@ -321,6 +385,38 @@ impl ItemEx for toml_edit::Item {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_find_registry_crates() {
+        let lock = r#"
+[[package]]
+name = "cairo-lang-utils"
+version = "2.21.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+
+[[package]]
+name = "cairo-lang-defs"
+version = "2.20.0"
+source = "git+https://github.com/starkware-libs/cairo?rev=abc#abc"
+
+[[package]]
+name = "cairo-lang-parser"
+version = "2.20.0"
+
+[[package]]
+name = "cairo-lang-primitive-token"
+version = "1.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+"#
+        .parse::<DocumentMut>()
+        .unwrap();
+        let tool_crates = ["cairo-lang-utils", "cairo-lang-defs", "cairo-lang-parser"];
+        assert_eq!(
+            find_registry_crates(&lock, &tool_crates),
+            vec!["cairo-lang-utils@2.21.0".to_owned()]
+        );
+        assert!(find_registry_crates(&"".parse().unwrap(), &tool_crates).is_empty());
+    }
 
     #[test]
     fn test_pull_cairo_packages_from_cairo_repository() {
